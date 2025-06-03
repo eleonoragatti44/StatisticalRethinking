@@ -64,8 +64,11 @@ Option (4) represents Bayes' theorem: Pr(Monday\|rain) = Pr(rain\|Monday) × Pr(
 # Chapter 3
 
 ```{r}
+#| output: false
 library(rethinking)
+```
 
+```{r}
 p_grid <- seq( from=0 , to=1 , length.out=1000 )
 prior <- rep( 1 , 1000 )
 likelihood <- dbinom( 6 , size=9 , prob=p_grid )
