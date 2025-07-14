@@ -1,0 +1,165 @@
+---
+title: "Ch4"
+format: html
+editor: visual
+engine: knitr
+---
+
+In this notebook, you will find my solutions to some exercises from Chapter 4 of *Statistical Rethinking* and the assigned exercises from [this](https://github.com/bjbarrett/stat_rethinking_2025/tree/main) course.
+
+# Chapter 4
+
+## Course Exercises
+
+------------------------------------------------------------------------
+
+### Exercise 1
+
+**Question:**
+
+-   From the Howell1 dataset, consider only the people younger than 13 years old. Estimate the causal association between age and weight.
+-   Assume that age influences weight through two paths. First, age influences height, and height influences weight. Second, age directly influences weight through age related changes in muscle growth and body proportions. Draw the DAG that represents these causal relationships. And then write a generative simulation that takes age as an input and simulates height and weight, obeying the relationships in the DAG.
+
+**Answer:**
+
+```{r}
+library(rethinking)
+
+data(Howell1)
+d <- Howell1
+d <- d[d$age<13,]
+
+# start by plotting w vs a
+plot(d$age, d$weight)
+```
+
+Height influences weight. Age influences both height and weight. Weight is influenced by both height and age. There are two ways age influences weight: directly and indirectly.
+
+$$
+H=f_H(A) \\
+W=f_W(H,A)
+$$
+
+This is the associated DAG:
+
+$$
+\begin{array}{cccc}
+H & &\xrightarrow{\quad\quad}& & W \\
+& \nwarrow & & \nearrow &\\
+& & A & &
+\end{array}
+$$
+
+I now want to write a generative simulation that takes age as an input and simulates height and weight, obeying the relationships in the DAG.
+
+```{r}
+
+a <- function(age) {
+  0.5 * age
+}
+
+b <- function(age) {
+  0.01 * age
+}
+
+# A is an array of ages
+sim_HW <- function(A,b,a) {
+  N = length(A)
+  H <- rgamma(N,14*A)
+  W <- a(A) + b(A)*H + rnorm(N, 0, 1)
+  data.frame(A,H,W)
+}
+
+A <- runif(100,0,12)
+dat <- sim_HW(A, b = b, a = a)
+
+plot(dat)
+```
+
+------------------------------------------------------------------------
+
+### Exercise 2
+
+**Question:** Estimate the **total** causal effect of each year of growth on weight.
+
+**Answer:**
+
+```{r}
+xbar <- mean(d$weight)
+
+# fit the model
+m <- quap(
+  alist(
+    weight ~ dnorm(mu, sigma),
+    mu <- a + b*(age - xbar),
+    
+    # priors
+    a ~ dnorm(20, 5),
+    b ~ dexp(0.3),
+    sigma ~ dexp(1)
+  ), data = d
+)
+```
+
+```{r}
+age.seq <- seq(from=0,to=12,length=30)
+
+pred_data <- list(age=age.seq)
+
+mu <- link(m, data=pred_data)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob=0.89)
+sim.weight <- sim(m, data=pred_data)
+weight.PI <- apply(sim.weight, 2, PI, prob=0.89)
+
+plot(weight~age, data=d, col=rangi2)
+lines(age.seq, mu.mean)
+shade(mu.PI, age.seq)
+shade(weight.PI, age.seq)
+```
+
+------------------------------------------------------------------------
+
+### Exercise 3
+
+**Question:** The data in data(`Oxboys`) (`rethinking` package) are growth records for 26 boys measured over 9 periods. I want you to model their growth. Specifically, model the increments in growth from one period (`Occasion` in the data table) to the next. Each increment is simply the difference between height in one occasion and height in the previous occasion. Since none of these boys shrunk during the study, all of the growth increments are greater than zero. Estimate the posterior distribution of these increments. Constrain the distribution so it is always positive—it should not be possible for the model to think that boys can shrink from year to year. Finally compute the posterior distribution of the total growth overall 9 occasions.
+
+**Answer:**
+
+```{r}
+
+data("Oxboys")
+oxboys <- as.data.frame(Oxboys)
+oxboys$diff <- with(
+  oxboys,
+  ave(height, Subject, FUN = function(x) c(NA, diff(x)))
+)
+
+oxboys = transform(oxboys, time=Occasion-1)
+oxboys <- oxboys[ !is.na(oxboys$diff) , ]
+
+# plot(oxboys$Occasion, oxboys$diff)
+
+# create a model
+mox <- quap(
+  alist(
+    diff ~ dlnorm( alpha , sigma ),
+    alpha ~ dnorm( 0 , 0.1 ),
+    sigma ~ dexp( 3 )
+  ), data = list(diff = oxboys$diff) )
+```
+
+```{r}
+# simulation from priors
+n <- 1e3
+alpha <- rnorm(n,0,0.1)
+sigma <- rexp(n,3)
+delta_sim <- rlnorm(n,alpha,sigma)
+dens(delta_sim)
+```
+
+```{r}
+post <- extract.samples(mox)
+dsim <- rlnorm(1e3,post$alpha,post$sigma)
+dens(dsim)
+```
