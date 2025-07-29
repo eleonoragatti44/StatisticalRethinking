@@ -1,0 +1,163 @@
+---
+title: "Ch6"
+format: html
+editor: visual
+engine: knitr
+---
+
+In this notebook, you will find my solutions to some exercises from Chapter 6 of *Statistical Rethinking* and the assigned exercises from [this](https://github.com/bjbarrett/stat_rethinking_2025/tree/main) course.
+
+# Chapter 6
+
+## Book Exercises
+
+------------------------------------------------------------------------
+
+### Exercise 6E1
+
+Multicollinearity, post-treatment bias, collider bias
+
+### Exercise 6E2
+
+...
+
+### Exercise 6E3
+
+**Fork**
+
+```{r}
+library(rethinking)
+library(dagitty)
+
+dag_fork <- dagitty("dag {
+  Z -> Y
+  Z -> X
+}")
+coordinates(dag_fork) <- list(x=c(Z=0, Y=-1, X=1),
+                              y=c(Z=0, Y=1, X=1))
+drawdag(dag_fork)
+```
+
+**The Pipe**
+
+```{r}
+dag_pipe <- dagitty("dag {
+  Z -> Y
+  Y -> X
+}")
+coordinates(dag_pipe) <- list(x=c(Z=0, Y=2, X=1),
+                              y=c(Z=0, Y=0, X=1))
+drawdag(dag_pipe)
+```
+
+**Collider**
+
+```{r}
+dag_collider <- dagitty("dag {
+  X -> Z
+  Y -> Z
+}")
+
+coordinates(dag_collider) <- list(x=c(Z=1, Y=2, X=0),
+                                    y=c(Z=1, Y=0, X=0))
+drawdag(dag_collider)
+```
+
+**The Descendant**
+
+```{r}
+dag_descendant <- dagitty("dag {
+  X -> Z
+  Y -> Z
+  Z -> D
+}")
+coordinates(dag_descendant) <- list(x=c(Z=1, Y=2, X=0, D=1),
+                                      y=c(Z=1, Y=0, X=0, D=0))
+
+drawdag(dag_descendant)
+```
+
+### Exercise 6E4
+
+...
+
+## Course Exercises
+
+------------------------------------------------------------------------
+
+### Exercise 1
+
+There is only one path from $A$ to $F$, the direct path. No backdoors, and no additional variables that need to be included in the model. We can confirm with dagitty.
+
+```{r}
+
+fox_dag <- dagitty("dag{ A -> F -> G -> W <- F }")
+adjustmentSets(fox_dag, exposure = "A", outcome = "F")
+```
+
+```{r}
+
+library(dplyr)
+
+data(foxes)
+
+fox_dat <- foxes %>%
+  as_tibble() %>%
+  select(area, avgfood, weight, groupsize) %>%
+  mutate(across(everything(), standardize))
+
+m_fox <- quap(alist(
+    # A -> F
+    avgfood ~ dnorm( muF , sigmaF ),
+    muF <- aA + bAF*area,
+
+    # priors
+    aA ~ dnorm(0,0.2),
+    bAF ~ dnorm(0,0.5),
+    sigmaF ~ dexp(1)
+  ) , data=fox_dat )
+
+summary(m_fox)
+```
+
+### Exercise 2-3
+
+```{r}
+adjustmentSets(fox_dag, exposure = "F", outcome = "W", effect = "total")
+
+adjustmentSets(fox_dag, exposure = "F", outcome = "W", effect = "direct")
+```
+
+```{r}
+food_tot <- quap(alist(
+    # F -> W
+    weight ~ dnorm( muW , sigmaW ),
+    muW <- aF + bFW*avgfood,
+
+    # priors
+    aF ~ dnorm(0,0.2),
+    bFW ~ dnorm(0,0.5),
+    sigmaW ~ dexp(1)
+  ) , data=fox_dat )
+
+summary(food_tot)
+```
+
+Almost no effect of F on W.
+
+```{r}
+food_dir <- quap(alist(
+    # F -> W <- G
+    weight ~ dnorm( muW , sigmaW ),
+    muW <- aF + bFW*avgfood + bGW*groupsize,
+
+    # priors
+    aF ~ dnorm(0,0.2),
+    c(bFW, bGW) ~ dnorm(0,0.5),
+    sigmaW ~ dexp(1)
+  ) , data=fox_dat )
+
+summary(food_dir)
+```
+
+When we stratify by group size, we see a strong positive effect of food on weight. Within a given group size, more food is associated with more weight.
